@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IA 1 2S2024</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="tytus.js"></script>
+    <script src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.21.0/vis-network.min.js"></script>
+    <style>
+        table {
+            border-collapse: collapse;
+            text-align: center;
+            width: 100%;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 8px;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f2f2f2
+        }
+
+        th {
+            background-color: #04AA6D;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center">Poyecto 2 - 202002364</h1>
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <div class="card p-4">
+                    <h3>Entrenar Modelo</h3>
+                    <div class="mb-3">
+                        <label for="modelType" class="form-label">Seleccionar Modelo:</label>
+                        <select class="form-select" id="modelType">
+                            <option value="linear">Regresión Lineal</option>
+                            <option value="polynomial">Regresión Polinómica</option>
+                            <option value="decisionTree">Árbol de Decisión - ID3</option>
+                        </select>
+                    </div>
+                    <div class="mb-3" id="degreeInput" style="display: none;">
+                        <label for="degree" class="form-label">Grado para la Regresión Polinómica:</label>
+                        <input type="number" class="form-control" id="degree" min="1" value="2">
+                    </div>
+                    <div class="mb-3" id="headerInput" style="display: none;">
+                        <label for="header" class="form-label">Ingrese Encabezado (separado por comas):</label>
+                        <input type="text" class="form-control" id="header" placeholder="ej., Outlook,Temperature,Humidity,Windy,Play Tennis">
+                    </div>
+                    <div class="mb-3" id="trainingDataInput" style="display: none;">
+                        <label for="trainingData" class="form-label">Ingrese Datos de Entrenamiento (una fila por línea, separado por comas):</label>
+                        <textarea class="form-control" id="trainingData" rows="5" placeholder="ej., Sunny,Hot,High,Weak,No\nOvercast,Hot,High,Weak,Yes"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="csvFile" class="form-label">Subir Archivo CSV:</label>
+                        <input type="file" class="form-control" id="csvFile" accept=".csv">
+                    </div>
+                    <button class="btn btn-primary" id="fitButton">Entrenar Modelo</button>
+                    <button class="btn btn-info mt-2" id="trendButton">Mostrar Análisis de Tendencias</button>
+                    <button class="btn btn-warning mt-2" id="patternButton">Mostrar Análisis de Patrones</button>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card p-4">
+                    <h3>Predecir</h3>
+                    <div class="mb-3" id="headerPredictInput">
+                        <label for="headerPredict" class="form-label">Ingrese Encabezado para la Predicción (separado por comas):</label>
+                        <input type="text" class="form-control" id="headerPredict" placeholder="ej., Outlook,Temperature,Humidity,Windy">
+                    </div>
+                    <div class="mb-3">
+                        <label for="xPredict" class="form-label">Valores X para Predecir (separado por comas):</label>
+                        <input type="text" class="form-control" id="xPredict">
+                    </div>
+                    <button class="btn btn-success" id="predictButton">Predecir</button>
+                    <div id="predictionResult" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+        <div class="row mt-5">
+            <div class="col-md-12">
+                <div class="card p-4">
+                    <h3>Gráficas</h3>
+                    <div id="chart_div" style="width: 900px; height: 500px;"></div>
+                    <div id="trend_chart_div" style="width: 900px; height: 500px;" class="mt-5"></div>
+                    <div id="pattern_chart_div" style="width: 900px; height: 500px;" class="mt-5"></div>
+                </div>
+            </div>
+        </div>
+        <h3 class="display-6 text-center mt-5">Árbol de Resultados:<br /></h3>
+        <div class="container mb-5">
+            <div style="width: 100%; height: 500px; border: 2px solid rgb(96, 160, 255); border-radius: 10px;" id="tree"></div>
+        </div>
+    </div>
+
+    <script>
+        let model;
+        let xTrain = [];
+        let yTrain = [];
+        let yPredict = [];
+
+        document.getElementById('modelType').addEventListener('change', () => {
+            const modelType = document.getElementById('modelType').value;
+            document.getElementById('degreeInput').style.display = modelType === 'polynomial' ? 'block' : 'none';
+            document.getElementById('headerInput').style.display = modelType === 'decisionTree' ? 'block' : 'none';
+            document.getElementById('trainingDataInput').style.display = modelType === 'decisionTree' ? 'block' : 'none';
+            document.getElementById('headerPredictInput').style.display = modelType === 'decisionTree' ? 'block' : 'none';
+        });
+
+        document.getElementById('csvFile').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const rows = text.split('\n');
+                    xTrain = [];
+                    yTrain = [];
+                    rows.forEach((row, index) => {
+                        if (index === 0) {
+                            // Ignorar la primera fila si es el encabezado
+                            return;
+                        }
+                        const values = row.split(',');
+                        if (values.length >= 2) {
+                            xTrain.push(values.slice(0, values.length - 1).map(Number));
+                            yTrain.push(parseFloat(values[values.length - 1]));
+                        }
+                    });
+                    alert('Datos cargados correctamente desde el archivo CSV.');
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        document.getElementById('fitButton').addEventListener('click', () => {
+            const modelType = document.getElementById('modelType').value;
+            if (modelType === 'decisionTree') {
+                const header = document.getElementById('header').value;
+                const trainingDataStr = document.getElementById('trainingData').value;
+                const arrHeader = header.split(',');
+                const arrTraining = trainingDataStr.split('\n').map(row => row.split(','));
+                const dataset = [arrHeader, ...arrTraining];
+                model = new DecisionTreeID3(dataset);
+                const root = model.train(model.dataset);
+                model.root = root;
+                const dotStr = model.generateDotString(root);
+
+                const parsDot = vis.network.convertDot(dotStr);
+                const data = {
+                    nodes: parsDot.nodes,
+                    edges: parsDot.edges
+                };
+                const options = {
+                    layout: {
+                        hierarchical: {
+                            levelSeparation: 100,
+                            nodeSpacing: 100,
+                            parentCentralization: true,
+                            direction: 'UD',
+                            sortMethod: 'directed',
+                        },
+                    },
+                };
+                const chart = document.getElementById("tree");
+                new vis.Network(chart, data, options);
+
+                alert('Árbol de Decisión entrenado correctamente!');
+            } else if (modelType === 'linear') {
+                if (xTrain.length === 0 || yTrain.length === 0) {
+                    alert('Por favor suba un archivo CSV con datos de entrenamiento o ingrese los datos manualmente.');
+                    return;
+                }
+                model = new LinearRegression();
+                model.fit(xTrain.map(x => x[0]), yTrain);
+                yPredict = model.predict(xTrain.map(x => x[0]));
+                alert('Modelo de Regresión Lineal entrenado correctamente!');
+            } else if (modelType === 'polynomial') {
+                const degree = parseInt(document.getElementById('degree').value);
+                if (xTrain.length === 0 || yTrain.length === 0) {
+                    alert('Por favor suba un archivo CSV con datos de entrenamiento o ingrese los datos manualmente.');
+                    return;
+                }
+                model = new PolynomialRegression();
+                model.fit(xTrain.map(x => x[0]), yTrain, degree);
+                yPredict = model.predict(xTrain.map(x => x[0]));
+                alert('Modelo de Regresión Polinómica entrenado correctamente!');
+            }
+            drawChart();
+        });
+
+        document.getElementById('predictButton').addEventListener('click', () => {
+            if (!model) {
+                alert('Por favor entrene un modelo primero.');
+                return;
+            }
+
+            const modelType = document.getElementById('modelType').value;
+            const xPredict = document.getElementById('xPredict').value;
+            let result;
+
+            if (modelType === 'decisionTree') {
+                const headerPredict = document.getElementById('headerPredict').value;
+                result = predictDecisionTree(model, headerPredict, xPredict);
+            } else if (modelType === 'linear') {
+                result = predictLinearRegression(model, xPredict);
+            } else if (modelType === 'polynomial') {
+                result = predictPolynomialRegression(model, xPredict);
+            }
+            document.getElementById('predictionResult').innerHTML = `<strong>Valores Predichos:</strong> ${result}`;
+        });
+
+        document.getElementById('trendButton').addEventListener('click', () => {
+            if (xTrain.length === 0 || yTrain.length === 0) {
+                alert('Por favor entrene un modelo y proporcione los datos primero.');
+                return;
+            }
+            drawTrendChart();
+        });
+
+        document.getElementById('patternButton').addEventListener('click', () => {
+            if (xTrain.length === 0 || yTrain.length === 0) {
+                alert('Por favor entrene un modelo y proporcione los datos primero.');
+                return;
+            }
+            drawPatternChart();
+        });
+
+        function predictDecisionTree(model, headerPredict, xPredict) {
+            const arrHeader = headerPredict.split(',');
+            const prediction = model.predict([arrHeader, xPredict.split(",")], model.root);
+            if (prediction != null) {
+                return prediction.value;
+            } else {
+                return 'Predicción fallida.';
+            }
+        }
+
+        function predictLinearRegression(model, xPredict) {
+            return model.predict(xPredict.split(',').map(Number));
+        }
+
+        function predictPolynomialRegression(model, xPredict) {
+            return model.predict(xPredict.split(',').map(Number));
+        }
+
+        function drawChart() {
+            if (xTrain.length === 0 || yTrain.length === 0 || yPredict.length === 0) {
+                return;
+            }
+
+            const dataArray = [['X', 'Y Entrenamiento', 'Y Predicho']];
+            for (let i = 0; i < xTrain.length; i++) {
+                dataArray.push([parseFloat(xTrain[i]), parseFloat(yTrain[i]), parseFloat(yPredict[i])]);
+            }
+
+            google.charts.load('current', {'packages': ['corechart']});
+            google.charts.setOnLoadCallback(() => {
+                const data = google.visualization.arrayToDataTable(dataArray);
+                const options = {
+                    seriesType: 'scatter',
+                    series: { 1: { type: 'line' } },
+                    title: 'Resultados de la Regresión',
+                    hAxis: { title: 'Valores X' },
+                    vAxis: { title: 'Valores Y' }
+                };
+                const chart = new google.visualization.ComboChart(document.getElementById('chart_div'));
+                chart.draw(data, options);
+            });
+        }
+
+        function drawTrendChart() {
+            const dataArray = [['X', 'Y Entrenamiento']];
+            for (let i = 0; i < xTrain.length; i++) {
+                dataArray.push([parseFloat(xTrain[i]), parseFloat(yTrain[i])]);
+            }
+
+            google.charts.load('current', {'packages': ['corechart']});
+            google.charts.setOnLoadCallback(() => {
+                const data = google.visualization.arrayToDataTable(dataArray);
+                const options = {
+                    title: 'Análisis de Tendencias',
+                    hAxis: { title: 'Valores X' },
+                    vAxis: { title: 'Valores Y' },
+                    trendlines: { 0: {} } // Dibujar una línea de tendencia
+                };
+                const chart = new google.visualization.LineChart(document.getElementById('trend_chart_div'));
+                chart.draw(data, options);
+            });
+        }
+
+        function drawPatternChart() {
+            const dataArray = [['X', 'Y Entrenamiento']];
+            for (let i = 0; i < xTrain.length; i++) {
+                dataArray.push([parseFloat(xTrain[i]), parseFloat(yTrain[i])]);
+            }
+
+            google.charts.load('current', {'packages': ['corechart']});
+            google.charts.setOnLoadCallback(() => {
+                const data = google.visualization.arrayToDataTable(dataArray);
+                const options = {
+                    title: 'Análisis de Patrones',
+                    hAxis: { title: 'Valores X' },
+                    vAxis: { title: 'Valores Y' },
+                    seriesType: 'scatter'
+                };
+                const chart = new google.visualization.ScatterChart(document.getElementById('pattern_chart_div'));
+                chart.draw(data, options);
+            });
+        }
+    </script>
+</body>
+
+</html>
